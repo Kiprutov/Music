@@ -2,31 +2,26 @@
 <v-container>
  <v-layout text-xs-center wrap>
    <v-flex xs6 offset-xs3>
-     <panel title="Register">
-         <form
-          name="music-form"
-          autocomplete="off">
-          <v-text-field
-            label="Email"
-            v-model="email"
-          ></v-text-field>
-          <br>
-          <v-text-field
-            label="password"
-            type="password"
-            v-model="password"
-            autocomplete="new-password"
-          ></v-text-field>
-         </form>
+      <panel title="Login">
+         <v-text-field
+           label="Email"
+           v-model="email"
+         ></v-text-field>
+         <br>
+         <v-text-field
+           label="password"
+           type="password"
+           v-model="password"
+         ></v-text-field>
          <br>
          <div class="error" v-html="error" />
          <br>
          <v-btn
            class="cyan"
-           @click="register" dark>
-           Register
+           @click="login" dark>
+           Login
          </v-btn>
-     </panel>
+      </panel>
     </v-flex>
   </v-layout>
 </v-container>
@@ -44,9 +39,9 @@ export default {
     }
   },
   methods: {
-    async register () {
+    async login () {
       try {
-        const response = await AuthenticationService.register({
+        const response = await AuthenticationService.login({
           email: this.email,
           password: this.password
         })
