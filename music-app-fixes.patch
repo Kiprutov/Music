@@ -1,0 +1,853 @@
+From 25946d7cce0d812bddec2ea3142a96d7c9f020d3 Mon Sep 17 00:00:00 2001
+From: Victor Kipruto <victor@shuleni.co.ke>
+Date: Wed, 17 Jun 2026 07:27:20 +0000
+Subject: [PATCH] Complete music app: fix login/logout bugs, add Song model,
+ routes, and full player UI
+
+- Fix: login endpoint now returns JWT token after successful auth
+- Fix: Header logout now correctly uses this.$store.dispatch (was this.route.dispatch)
+- Add: Song model (title, artist, album, url, coverUrl, duration)
+- Add: SongController with index, create, show, destroy
+- Add: Song API routes (GET/POST /songs, GET/DELETE /songs/:id)
+- Add: SongService.js for frontend API calls
+- Complete: Songs.vue now has full music player UI with play/pause,
+  next/prev, seek bar, volume control, cover art, and add/delete forms
+- Update: README with full documentation, setup instructions, and bug fix log
+---
+ README.md                                     | 112 ++++-
+ client/src/components/Header.vue              |  28 +-
+ client/src/components/Songs.vue               | 392 +++++++++++++++++-
+ client/src/services/SongService.js            |  13 +
+ .../controllers/AuthenticationController.js   |  13 +-
+ server/src/controllers/SongController.js      |  54 +++
+ server/src/models/Song.js                     |  33 ++
+ server/src/models/index.js                    |  30 +-
+ server/src/routes.js                          |  12 +-
+ 9 files changed, 642 insertions(+), 45 deletions(-)
+ create mode 100644 client/src/services/SongService.js
+ create mode 100644 server/src/controllers/SongController.js
+ create mode 100644 server/src/models/Song.js
+
+diff --git a/README.md b/README.md
+index 825936e..b8bd473 100644
+--- a/README.md
++++ b/README.md
+@@ -1,2 +1,110 @@
+-# Music
+-Trial project
++# 🎵 Music App
++
++A full-stack music streaming web application built with Vue 2 and Node.js/Express.
++
++> **Note:** This project was originally built in 2019 and has been updated to complete the missing features. The stack is intentionally kept on its original versions (Vue 2, Vuetify 1.x, Sequelize 5) — no breaking upgrades applied.
++
++## Features
++
++- 🔐 User registration and login (JWT authentication)
++- 🎶 Browse songs list
++- ▶️ Audio player with play/pause, next/prev, seek, and volume controls
++- ➕ Add songs (logged-in users only)
++- 🗑️ Delete songs (logged-in users only)
++- 💾 SQLite database (no setup required)
++
++## Tech Stack
++
++| Layer | Technology |
++|---|---|
++| Frontend | Vue 2, Vuetify 1.x, Vuex, Vue Router, Axios |
++| Backend | Node.js, Express 4, Sequelize 5, SQLite3 |
++| Auth | JWT (jsonwebtoken), bcrypt |
++
++## Project Structure
++
++```
++Music/
++├── client/         # Vue 2 frontend
++│   └── src/
++│       ├── components/   # Header, Login, Register, Songs, Panel
++│       ├── services/     # Api, AuthenticationService, SongService
++│       ├── store/        # Vuex store (auth state)
++│       └── router/       # Vue Router
++└── server/         # Express backend
++    └── src/
++        ├── controllers/  # AuthenticationController, SongController
++        ├── models/       # User, Song (Sequelize/SQLite)
++        ├── policies/     # Validation middleware
++        └── routes.js     # API routes
++```
++
++## Getting Started
++
++### Requirements
++
++- Node.js >= 6.0.0
++- npm >= 3.0.0
++
++### 1. Start the backend
++
++```bash
++cd server
++npm install
++npm start
++# Runs on http://localhost:8081
++```
++
++### 2. Start the frontend
++
++```bash
++cd client
++npm install
++npm start
++# Runs on http://localhost:8080
++```
++
++## API Endpoints
++
++| Method | Endpoint | Description | Auth Required |
++|---|---|---|---|
++| POST | `/register` | Register a new user | No |
++| POST | `/login` | Login and get JWT token | No |
++| GET | `/songs` | List all songs | No |
++| POST | `/songs` | Add a new song | No* |
++| GET | `/songs/:id` | Get a single song | No |
++| DELETE | `/songs/:id` | Delete a song | No* |
++
++> *Authentication middleware can be added to POST/DELETE routes as a future improvement.
++
++## Adding Songs
++
++Songs are added via the UI (when logged in) or directly via the API:
++
++```json
++POST /songs
++{
++  "title": "Song Title",
++  "artist": "Artist Name",
++  "album": "Album Name",
++  "url": "https://example.com/song.mp3",
++  "coverUrl": "https://example.com/cover.jpg"
++}
++```
++
++The `url` field should be a publicly accessible `.mp3` or audio file URL.
++
++## Bugs Fixed (2024 update)
++
++- ✅ Login endpoint was not returning the JWT token after successful authentication
++- ✅ Logout in Header component was calling `this.route.dispatch` instead of `this.$store.dispatch` (crashed on logout)
++- ✅ `Songs.vue` was an empty placeholder — now a full working music player
++- ✅ Song model and CRUD API routes added
++
++## Roadmap / Future Improvements
++
++- [ ] File upload support (upload mp3 directly instead of URL)
++- [ ] Protect add/delete routes with JWT middleware
++- [ ] Search and filter songs
++- [ ] Playlists
++- [ ] Migrate to Vue 3 + Vuetify 3
+diff --git a/client/src/components/Header.vue b/client/src/components/Header.vue
+index 473c38c..88d10ad 100644
+--- a/client/src/components/Header.vue
++++ b/client/src/components/Header.vue
+@@ -1,17 +1,13 @@
+ <template>
+   <v-toolbar fixed class="cyan" dark>
+       <v-toolbar-title class="mr-4">
+-        <span
+-        class="home"
+-          @click="navigateTo({name: 'root'})">
+-          Music
++        <span class="home" @click="navigateTo({name: 'root'})">
++          🎵 Music
+         </span>
+       </v-toolbar-title>
+ 
+       <v-toolbar-items>
+-        <v-btn 
+-          flat
+-          @click="navigateTo({name: 'songs'})">
++        <v-btn flat @click="navigateTo({name: 'songs'})">
+           Browse
+         </v-btn>
+       </v-toolbar-items>
+@@ -23,17 +19,17 @@
+           v-if="!$store.state.isUserLoggedIn"
+           flat
+           @click="navigateTo({name: 'login'})">
+-          login
++          Login
+         </v-btn>
+-   
+-        <v-btn 
++
++        <v-btn
+           v-if="!$store.state.isUserLoggedIn"
+           flat
+           @click="navigateTo({name: 'register'})">
+           Sign Up
+         </v-btn>
+ 
+-        <v-btn 
++        <v-btn
+           v-if="$store.state.isUserLoggedIn"
+           flat
+           @click="logout">
+@@ -50,12 +46,10 @@ export default {
+       this.$router.push(route)
+     },
+     logout () {
+-      this.route.dispatch('setToken', null)
+-      this.route.dispatch('setUser', null)
+-      //redirect to homepage
+-      this.$router.push({
+-        name: 'root'
+-      })
++      // FIX: was using this.route.dispatch (wrong) — fixed to this.$store.dispatch
++      this.$store.dispatch('setToken', null)
++      this.$store.dispatch('setUser', null)
++      this.$router.push({ name: 'root' })
+     }
+   }
+ }
+diff --git a/client/src/components/Songs.vue b/client/src/components/Songs.vue
+index 8083791..6eeb3eb 100644
+--- a/client/src/components/Songs.vue
++++ b/client/src/components/Songs.vue
+@@ -1,22 +1,396 @@
+ <template>
+- <v-layout text-xs-center wrap>
+-   <v-flex xs6 offset-xs3>
+-     <panel title="Songs">
++  <v-container>
++    <!-- Add Song Form (logged in users only) -->
++    <v-layout row wrap v-if="$store.state.isUserLoggedIn">
++      <v-flex xs12 md8 offset-md2 mb-4>
++        <panel title="Add a Song">
++          <v-layout row wrap>
++            <v-flex xs12 sm6 pa-1>
++              <v-text-field
++                label="Title *"
++                v-model="newSong.title"
++              ></v-text-field>
++            </v-flex>
++            <v-flex xs12 sm6 pa-1>
++              <v-text-field
++                label="Artist *"
++                v-model="newSong.artist"
++              ></v-text-field>
++            </v-flex>
++            <v-flex xs12 sm6 pa-1>
++              <v-text-field
++                label="Album"
++                v-model="newSong.album"
++              ></v-text-field>
++            </v-flex>
++            <v-flex xs12 sm6 pa-1>
++              <v-text-field
++                label="Audio URL *"
++                v-model="newSong.url"
++                placeholder="https://example.com/song.mp3"
++              ></v-text-field>
++            </v-flex>
++            <v-flex xs12 pa-1>
++              <v-text-field
++                label="Cover Image URL"
++                v-model="newSong.coverUrl"
++                placeholder="https://example.com/cover.jpg"
++              ></v-text-field>
++            </v-flex>
++            <v-flex xs12 pa-1>
++              <div class="error mb-2" v-if="addError">{{ addError }}</div>
++              <v-btn class="cyan" dark @click="addSong" :loading="adding">
++                Add Song
++              </v-btn>
++            </v-flex>
++          </v-layout>
++        </panel>
++      </v-flex>
++    </v-layout>
+ 
+-     </panel>
+-    </v-flex>
+-  </v-layout>
++    <!-- Now Playing Bar -->
++    <v-layout row wrap v-if="currentSong">
++      <v-flex xs12 md8 offset-md2 mb-4>
++        <div class="now-playing elevation-4">
++          <div class="now-playing-info">
++            <img
++              v-if="currentSong.coverUrl"
++              :src="currentSong.coverUrl"
++              class="now-playing-cover"
++              @error="currentSong.coverUrl = null"
++            />
++            <div class="now-playing-cover default-cover" v-else>
++              <v-icon large color="white">music_note</v-icon>
++            </div>
++            <div class="now-playing-text">
++              <div class="now-playing-title">{{ currentSong.title }}</div>
++              <div class="now-playing-artist">{{ currentSong.artist }}</div>
++            </div>
++          </div>
++
++          <!-- Controls -->
++          <div class="player-controls">
++            <v-btn icon @click="playPrev" :disabled="songs.length < 2">
++              <v-icon>skip_previous</v-icon>
++            </v-btn>
++            <v-btn icon large class="cyan" dark @click="togglePlay">
++              <v-icon large>{{ isPlaying ? 'pause' : 'play_arrow' }}</v-icon>
++            </v-btn>
++            <v-btn icon @click="playNext" :disabled="songs.length < 2">
++              <v-icon>skip_next</v-icon>
++            </v-btn>
++          </div>
++
++          <!-- Progress -->
++          <div class="player-progress px-3">
++            <span class="time-label">{{ formatTime(currentTime) }}</span>
++            <v-slider
++              :value="progress"
++              @input="seek"
++              min="0"
++              max="100"
++              hide-details
++              class="mx-2"
++              color="cyan"
++            ></v-slider>
++            <span class="time-label">{{ formatTime(duration) }}</span>
++          </div>
++
++          <!-- Volume -->
++          <div class="player-volume px-3 pb-2">
++            <v-icon small>volume_down</v-icon>
++            <v-slider
++              v-model="volume"
++              @input="setVolume"
++              min="0"
++              max="100"
++              hide-details
++              class="mx-2"
++              color="cyan"
++              style="max-width: 120px"
++            ></v-slider>
++            <v-icon small>volume_up</v-icon>
++          </div>
++        </div>
++
++        <!-- Hidden audio element -->
++        <audio
++          ref="audioPlayer"
++          :src="currentSong.url"
++          @timeupdate="onTimeUpdate"
++          @ended="playNext"
++          @loadedmetadata="onMetaLoaded"
++        ></audio>
++      </v-flex>
++    </v-layout>
++
++    <!-- Songs List -->
++    <v-layout row wrap>
++      <v-flex xs12 md8 offset-md2>
++        <panel title="Songs">
++          <div v-if="loading" class="text-xs-center py-4">
++            <v-progress-circular indeterminate color="cyan"></v-progress-circular>
++          </div>
++
++          <div v-else-if="songs.length === 0" class="text-xs-center py-4 grey--text">
++            <v-icon large color="grey lighten-1">music_off</v-icon>
++            <p class="mt-2">No songs yet. Add one above!</p>
++          </div>
++
++          <v-list v-else two-line>
++            <template v-for="(song, index) in songs">
++              <v-list-tile
++                :key="song.id"
++                :class="{ 'active-song': currentSong && currentSong.id === song.id }"
++                @click="playSong(index)"
++                avatar
++              >
++                <!-- Cover or default icon -->
++                <v-list-tile-avatar>
++                  <img v-if="song.coverUrl" :src="song.coverUrl" @error="song.coverUrl = null" />
++                  <v-icon v-else class="cyan white--text" style="border-radius:50%; padding:8px">
++                    {{ currentSong && currentSong.id === song.id && isPlaying ? 'pause' : 'music_note' }}
++                  </v-icon>
++                </v-list-tile-avatar>
++
++                <v-list-tile-content>
++                  <v-list-tile-title :class="currentSong && currentSong.id === song.id ? 'cyan--text' : ''">
++                    {{ song.title }}
++                  </v-list-tile-title>
++                  <v-list-tile-sub-title>{{ song.artist }} — {{ song.album || 'Unknown Album' }}</v-list-tile-sub-title>
++                </v-list-tile-content>
++
++                <v-list-tile-action v-if="$store.state.isUserLoggedIn">
++                  <v-btn icon @click.stop="deleteSong(song.id)">
++                    <v-icon color="grey lighten-1">delete</v-icon>
++                  </v-btn>
++                </v-list-tile-action>
++              </v-list-tile>
++              <v-divider :key="'d' + index" v-if="index < songs.length - 1"></v-divider>
++            </template>
++          </v-list>
++        </panel>
++      </v-flex>
++    </v-layout>
++  </v-container>
+ </template>
+ 
+ <script>
+ import Panel from '@/components/Panel'
++import SongService from '@/services/SongService'
++
+ export default {
+-    components: {
+-        Panel
++  components: { Panel },
++  data () {
++    return {
++      songs: [],
++      loading: true,
++      adding: false,
++      addError: null,
++      currentSong: null,
++      currentIndex: -1,
++      isPlaying: false,
++      currentTime: 0,
++      duration: 0,
++      volume: 80,
++      newSong: {
++        title: '',
++        artist: '',
++        album: '',
++        url: '',
++        coverUrl: ''
++      }
++    }
++  },
++  computed: {
++    progress () {
++      if (!this.duration) return 0
++      return (this.currentTime / this.duration) * 100
+     }
++  },
++  async mounted () {
++    await this.loadSongs()
++  },
++  methods: {
++    async loadSongs () {
++      try {
++        const response = await SongService.getSongs()
++        this.songs = response.data
++      } catch (err) {
++        console.error('Failed to load songs', err)
++      } finally {
++        this.loading = false
++      }
++    },
++
++    async addSong () {
++      this.addError = null
++      if (!this.newSong.title || !this.newSong.artist || !this.newSong.url) {
++        this.addError = 'Title, artist and audio URL are required.'
++        return
++      }
++      this.adding = true
++      try {
++        const response = await SongService.createSong(this.newSong)
++        this.songs.push(response.data)
++        this.newSong = { title: '', artist: '', album: '', url: '', coverUrl: '' }
++      } catch (err) {
++        this.addError = 'Failed to add song. Please try again.'
++      } finally {
++        this.adding = false
++      }
++    },
++
++    async deleteSong (id) {
++      try {
++        await SongService.deleteSong(id)
++        const idx = this.songs.findIndex(s => s.id === id)
++        if (idx !== -1) this.songs.splice(idx, 1)
++        if (this.currentSong && this.currentSong.id === id) {
++          this.currentSong = null
++          this.isPlaying = false
++        }
++      } catch (err) {
++        console.error('Failed to delete song', err)
++      }
++    },
++
++    playSong (index) {
++      this.currentIndex = index
++      this.currentSong = this.songs[index]
++      this.$nextTick(() => {
++        const player = this.$refs.audioPlayer
++        if (player) {
++          player.volume = this.volume / 100
++          player.play()
++          this.isPlaying = true
++        }
++      })
++    },
++
++    togglePlay () {
++      const player = this.$refs.audioPlayer
++      if (!player) return
++      if (this.isPlaying) {
++        player.pause()
++        this.isPlaying = false
++      } else {
++        player.play()
++        this.isPlaying = true
++      }
++    },
++
++    playNext () {
++      if (this.songs.length === 0) return
++      const next = (this.currentIndex + 1) % this.songs.length
++      this.playSong(next)
++    },
++
++    playPrev () {
++      if (this.songs.length === 0) return
++      const prev = (this.currentIndex - 1 + this.songs.length) % this.songs.length
++      this.playSong(prev)
++    },
++
++    onTimeUpdate () {
++      const player = this.$refs.audioPlayer
++      if (player) this.currentTime = player.currentTime
++    },
++
++    onMetaLoaded () {
++      const player = this.$refs.audioPlayer
++      if (player) this.duration = player.duration
++    },
++
++    seek (value) {
++      const player = this.$refs.audioPlayer
++      if (player && this.duration) {
++        player.currentTime = (value / 100) * this.duration
++      }
++    },
++
++    setVolume (value) {
++      const player = this.$refs.audioPlayer
++      if (player) player.volume = value / 100
++    },
++
++    formatTime (seconds) {
++      if (!seconds || isNaN(seconds)) return '0:00'
++      const m = Math.floor(seconds / 60)
++      const s = Math.floor(seconds % 60)
++      return `${m}:${s.toString().padStart(2, '0')}`
++    }
++  }
+ }
+ </script>
+ 
+ <style scoped>
++.error {
++  color: red;
++}
++
++.now-playing {
++  background: #1a1a2e;
++  border-radius: 12px;
++  padding: 16px;
++  color: white;
++}
++
++.now-playing-info {
++  display: flex;
++  align-items: center;
++  margin-bottom: 12px;
++}
+ 
+-</style>
+\ No newline at end of file
++.now-playing-cover {
++  width: 56px;
++  height: 56px;
++  border-radius: 8px;
++  object-fit: cover;
++  margin-right: 12px;
++}
++
++.default-cover {
++  width: 56px;
++  height: 56px;
++  border-radius: 8px;
++  background: #00bcd4;
++  display: flex;
++  align-items: center;
++  justify-content: center;
++  margin-right: 12px;
++}
++
++.now-playing-title {
++  font-size: 16px;
++  font-weight: 600;
++}
++
++.now-playing-artist {
++  font-size: 13px;
++  color: #aaa;
++}
++
++.player-controls {
++  display: flex;
++  justify-content: center;
++  align-items: center;
++  margin-bottom: 8px;
++}
++
++.player-progress,
++.player-volume {
++  display: flex;
++  align-items: center;
++}
++
++.time-label {
++  font-size: 12px;
++  color: #aaa;
++  min-width: 36px;
++}
++
++.active-song {
++  background: #e0f7fa;
++}
++</style>
+diff --git a/client/src/services/SongService.js b/client/src/services/SongService.js
+new file mode 100644
+index 0000000..6fea8d3
+--- /dev/null
++++ b/client/src/services/SongService.js
+@@ -0,0 +1,13 @@
++import Api from '@/services/Api'
++
++export default {
++  getSongs () {
++    return Api().get('songs')
++  },
++  createSong (song) {
++    return Api().post('songs', song)
++  },
++  deleteSong (id) {
++    return Api().delete(`songs/${id}`)
++  }
++}
+diff --git a/server/src/controllers/AuthenticationController.js b/server/src/controllers/AuthenticationController.js
+index 79e9588..5f4644b 100644
+--- a/server/src/controllers/AuthenticationController.js
++++ b/server/src/controllers/AuthenticationController.js
+@@ -40,15 +40,22 @@ module.exports = {
+         }
+ 
+         const isPasswordValid = await user.comparePassword(password)
+-        if(!isPasswordValid) {
++        if (!isPasswordValid) {
+             return res.status(403).send({
+-                error: 'The login information wasincorrect'
++                error: 'The login information was incorrect'
+             })
+         }
++
++        // FIX: was missing — never returned token after successful login
++        const userJson = user.toJSON()
++        res.send({
++            user: userJson,
++            token: jwtSignUser(userJson)
++        })
+       } catch (err) {
+           res.status(500).send({
+               error: 'An error has occured trying to log in.'
+           })
+         }
+    }
+-}
+\ No newline at end of file
++}
+diff --git a/server/src/controllers/SongController.js b/server/src/controllers/SongController.js
+new file mode 100644
+index 0000000..4508134
+--- /dev/null
++++ b/server/src/controllers/SongController.js
+@@ -0,0 +1,54 @@
++const {Song} = require('../models')
++
++module.exports = {
++    // GET /songs — list all songs
++    async index (req, res) {
++        try {
++            const songs = await Song.findAll()
++            res.send(songs)
++        } catch (err) {
++            res.status(500).send({
++                error: 'An error occurred while fetching songs.'
++            })
++        }
++    },
++
++    // POST /songs — add a new song
++    async create (req, res) {
++        try {
++            const song = await Song.create(req.body)
++            res.send(song)
++        } catch (err) {
++            res.status(400).send({
++                error: 'Could not create song. Check that title, artist and url are provided.'
++            })
++        }
++    },
++
++    // GET /songs/:id — get a single song
++    async show (req, res) {
++        try {
++            const song = await Song.findByPk(req.params.id)
++            if (!song) {
++                return res.status(404).send({ error: 'Song not found.' })
++            }
++            res.send(song)
++        } catch (err) {
++            res.status(500).send({ error: 'An error occurred.' })
++        }
++    },
++
++    // DELETE /songs/:id — delete a song
++    async destroy (req, res) {
++        try {
++            const song = await Song.findByPk(req.params.id)
++            if (!song) {
++                return res.status(404).send({ error: 'Song not found.' })
++            }
++            await song.destroy()
++            res.send({ message: 'Song deleted successfully.' })
++        } catch (err) {
++            res.status(500).send({ error: 'An error occurred.' })
++        }
++    }
++}
+diff --git a/server/src/models/Song.js b/server/src/models/Song.js
+new file mode 100644
+index 0000000..78bebac
+--- /dev/null
++++ b/server/src/models/Song.js
+@@ -0,0 +1,33 @@
++module.exports = (sequelize, DataTypes) => {
++    const Song = sequelize.define('Song', {
++        title: {
++            type: DataTypes.STRING,
++            allowNull: false
++        },
++        artist: {
++            type: DataTypes.STRING,
++            allowNull: false
++        },
++        album: {
++            type: DataTypes.STRING,
++            defaultValue: 'Unknown Album'
++        },
++        url: {
++            type: DataTypes.STRING,
++            allowNull: false,
++            comment: 'URL or path to the audio file'
++        },
++        duration: {
++            type: DataTypes.INTEGER,
++            defaultValue: 0,
++            comment: 'Duration in seconds'
++        },
++        coverUrl: {
++            type: DataTypes.STRING,
++            defaultValue: null,
++            comment: 'URL to album art image'
++        }
++    })
++
++    return Song
++}
+diff --git a/server/src/models/index.js b/server/src/models/index.js
+index 9dccc31..78410c3 100644
+--- a/server/src/models/index.js
++++ b/server/src/models/index.js
+@@ -1,3 +1,5 @@
++'use strict'
++
+ const fs = require('fs')
+ const path = require('path')
+ const Sequelize = require('sequelize')
+@@ -5,23 +7,29 @@ const config = require('../config/config')
+ const db = {}
+ 
+ const sequelize = new Sequelize(
+-    config.db.database,
+-    config.db.user,
+-    config.db.password,
+-    config.db.options
++  config.db.database,
++  config.db.user,
++  config.db.password,
++  config.db.options
+ )
+ 
+ fs
+   .readdirSync(__dirname)
+-  .filter((file) =>
+-  file !== 'index.js'
+-  )
+-  .forEach((file) => {
+-      const model = sequelize.import(path.join(__dirname,file))
++  .filter(file => {
++    return (file.indexOf('.') !== 0) && (file !== 'index.js') && (file.slice(-3) === '.js')
++  })
++  .forEach(file => {
++    const model = sequelize.import(path.join(__dirname, file))
+     db[model.name] = model
+   })
+ 
++Object.keys(db).forEach(modelName => {
++  if (db[modelName].associate) {
++    db[modelName].associate(db)
++  }
++})
++
+ db.sequelize = sequelize
+-db.Sequelize = sequelize
++db.Sequelize = Sequelize
+ 
+-module.exports = db
+\ No newline at end of file
++module.exports = db
+diff --git a/server/src/routes.js b/server/src/routes.js
+index f604ee5..a42ba68 100644
+--- a/server/src/routes.js
++++ b/server/src/routes.js
+@@ -1,13 +1,19 @@
+ const AuthenticationController = require('./controllers/AuthenticationController')
+-
+ const AuthenticationControllerPolicy = require('./policies/AuthenticationControllerPolicy')
++const SongController = require('./controllers/SongController')
+ 
+ module.exports = (app) => {
++    // Auth routes
+     app.post('/register',
+       AuthenticationControllerPolicy.register,
+       AuthenticationController.register)
+ 
+     app.post('/login',
+-    AuthenticationController.login)
+-    
++      AuthenticationController.login)
++
++    // Song routes
++    app.get('/songs', SongController.index)
++    app.post('/songs', SongController.create)
++    app.get('/songs/:id', SongController.show)
++    app.delete('/songs/:id', SongController.destroy)
+ }
+-- 
+2.43.0
+

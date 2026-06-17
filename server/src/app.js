@@ -8,11 +8,21 @@ const config = require('./config/config')
 const app = express()
 app.use(morgan('combine'))
 app.use(bodyParser.json())
-app.use(cors())
+
+const corsOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map(s => s.trim())
+  : ['http://localhost:8080']
+
+app.use(cors({
+  origin: corsOrigins,
+  credentials: true
+}))
 
 require('./routes')(app)
 
 sequelize.sync()
     .then(() => {
-      app.listen(config.port)
+      app.listen(config.port, () => {
+        console.log(`API listening on port ${config.port}`)
+      })
     })
