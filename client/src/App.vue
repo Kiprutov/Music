@@ -4,9 +4,7 @@
       <page-header />
 
       <main>
-        <v-container fluid>
-          <router-view></router-view>
-        </v-container>
+        <router-view></router-view>
       </main>
     </v-app>
   </div>
@@ -30,6 +28,10 @@ export default {
   -moz-osx-font-smoothing: grayscale;
   text-align: center;
   color: #2c3e50;
-  margin-top: 60px;
+  margin-top: 56px;
+}
+
+main {
+  width: 100%;
 }
 </style>

@@ -6,7 +6,7 @@
   "private": true,
   "scripts": {
     "dev": "webpack-dev-server --inline --progress --config build/webpack.dev.conf.js",
-    "start": "npm run dev",
+    "start": "serve -s dist -l ${PORT:-8080}",
     "unit": "cross-env BABEL_ENV=test karma start test/unit/karma.conf.js --single-run",
     "e2e": "node test/e2e/runner.js",
     "test": "npm run unit && npm run e2e",
@@ -17,6 +17,7 @@
     "ajv": "^5.0.0",
     "axios": "^0.19.0",
     "css-mqpacker": "^7.0.0",
+    "serve": "^14.2.4",
     "vue": "^2.5.2",
     "vue-router": "^3.0.1",
     "vuetify": "^1.5.21",

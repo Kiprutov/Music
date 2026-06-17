@@ -1,5 +1,5 @@
 <template>
-<v-container>
+<v-container class="auth-page">
  <v-layout text-xs-center wrap>
    <v-flex xs6 offset-xs3>
      <panel title="Register">
@@ -22,7 +22,7 @@
          <div class="error" v-html="error" />
          <br>
          <v-btn
-           class="cyan"
+           class="primary-btn"
            @click="register" dark>
            Register
          </v-btn>
@@ -52,6 +52,7 @@ export default {
         })
         this.$store.dispatch('setToken', response.data.token)
         this.$store.dispatch('setUser', response.data.user)
+        this.$router.push({ name: 'root' })
       } catch (error) {
         this.error = error.response.data.error
       }
@@ -65,7 +66,16 @@ export default {
 
 <style scoped>
 .error {
-  color: red;
+  color: #dc2626;
 }
 
+.auth-page {
+  background: #f8fafc;
+  min-height: calc(100vh - 60px);
+  padding-top: 36px;
+}
+
+.primary-btn {
+  background: #2563eb !important;
+}
 </style>

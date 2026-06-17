@@ -1,8 +1,8 @@
 import Api from '@/services/Api'
 
 export default {
-  getSongs () {
-    return Api().get('songs')
+  getSongs (params = {}) {
+    return Api().get('songs', { params })
   },
   createSong (song) {
     return Api().post('songs', song)
